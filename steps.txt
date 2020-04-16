@@ -1,0 +1,22 @@
+# Criação DFs
+var df = spark.read.options(Map("inferSchema"->"true","sep"->",","header"->"true","encoding"->"UTF-8")).csv("estacoes.csv")
+var imov = spark.read.parquet("imoveis_20200402.gz.parquet").withColumnRenamed("lat", "lat_imov").withColumnRenamed("lon", "long_imov")
+
+# Junção
+var dual = df.crossJoin(imov)
+
+#Calculo da distancia em nova coluna
+import org.apache.spark.sql.functions.{abs, hypot}
+dual = dual.withColumn("dist", hypot(abs($"lat"-$"lat_imov")*111120, abs($"lon"-$"long_imov")*111120))
+dual = dual.filter($"dist" isNotNull)
+val closest = dual.groupBy($"dataid").agg(min($"dist").as("min_dist")).orderBy($"min_dist")
+val closest = dual.groupBy($"dataid").agg(min($"dist").as("dist"))
+val final_df = closest.join(dual, Seq("dataid", "dist"), "left")
+
+#Demonstração do dataframe
+val tosave = final_df.select($"dataid", $"estacao", $"dist")
+tosave.cache.show(tosave.count.toInt)
+
+#Salvar
+#tosave.coalesce(1).write.format("parquet").option("compression", "snappy").save("output/df_top1_snappy")
+#tosave.coalesce(1).write.format("parquet").option("compression", "gzip").save("output/df_top1_gzip")
